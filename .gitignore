@@ -1,0 +1,64 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build outputs
+bin/
+out/
+build/
+*.test
+
+# Go test coverage
+*.out
+cover.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.buildpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+.viminfo
+.vscode-test/
+
+# AI Tools
+.trae/
+.cline/
+.cursor/
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Temporary files and cache
+tmp/
+temp/
+.cache/
+.env
+.env.*
+!.env.example

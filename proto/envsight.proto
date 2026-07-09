@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package envsight;
+
+option go_package = "github.com/Moriaty911/envsight-api/pb;pb";
+
+// AgentService defines the bidirectional contract between the EnvSight Agent
+// and the EnvSight Server.
+service AgentService {
+  // Register is called once on agent startup to announce the host. The server
+  // either issues a new UUIDv7 or confirms the cached one.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // StreamStatus is a bidirectional stream: the agent pushes NodeState
+  // telemetry, and the server pushes ServerCommand (e.g. request_detail,
+  // diagnose) back to the agent.
+  rpc StreamStatus(stream NodeState) returns (stream ServerCommand);
+}
+
+message RegisterRequest {
+  string agent_uuid = 1;   // Empty on first registration; cached UUID otherwise
+  HostInfo host_info = 2;  // Static host inventory collected at startup
+  string token = 3;        // Agent API token (also sent as gRPC Bearer metadata)
+}
+
+message RegisterResponse {
+  string agent_uuid = 1;   // Server-issued or confirmed UUID
+  bool success = 2;
+  string message = 3;      // Error description when success == false
+}
+
+// HostInfo carries the static, rarely-changing facts about a machine.
+message HostInfo {
+  string hostname = 1;
+  string os_info = 2;
+  string instance_id = 3;  // Optional cloud provider instance ID
+  int32 cpu_cores = 4;
+  uint64 mem_total_mb = 5;
+  uint64 disk_total_mb = 6;
+  repeated GpuInfo gpus = 7;
+  string cloud_provider = 8;
+}
+
+// NodeState is the dynamic per-heartbeat payload streamed by the agent.
+message NodeState {
+  string agent_uuid = 1;
+  Metrics metrics = 2;
+  repeated PortInfo ports = 3;
+  repeated GpuInfo gpus = 4;       // GPU usage may change dynamically
+  bool has_physical_tty = 5;
+  bool is_idle = 6;                // Agent-side idle detection flag
+  bool require_db_save = 7;        // When true, server persists a SysMetric row
+  repeated GpuProcess gpu_processes = 8;
+  string diagnostic_snapshot = 9;  // Text snapshot produced by the diagnose command
+}
+
+message Metrics {
+  double cpu_percent = 1;
+  uint64 mem_used_mb = 2;
+  uint64 mem_total_mb = 3;         // Kept for backward compat and quick percentage calc
+  uint64 disk_used_mb = 4;
+  uint64 uptime_seconds = 5;
+  double load_1 = 6;
+  double load_5 = 7;
+  double load_15 = 8;
+}
+
+message GpuInfo {
+  string vendor = 1;
+  string model = 2;
+  float usage_percent = 3;
+  uint64 vram_total_mb = 4;
+  uint64 vram_used_mb = 5;
+}
+
+message GpuProcess {
+  uint32 pid = 1;
+  string process_name = 2;
+  string user = 3;           // User running the process
+  uint64 vram_used_mb = 4;
+  uint32 gpu_index = 5;      // Which GPU this process is running on
+}
+
+message PortInfo {
+  uint32 port = 1;
+  string process_name = 2;
+  string cmdline = 3;
+  string user = 4;           // User running the process
+}
+
+message ServerCommand {
+  string action = 1;         // e.g. "request_detail", "diagnose"
+  string payload = 2;
+}
