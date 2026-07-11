@@ -30,7 +30,7 @@ The generated `pb/` files are committed (not gitignored) so consumers can `go ge
 
 ## Prerequisites
 
-- **Go** 1.21+ (the module's `go` directive may track a newer toolchain; consumers on 1.21 are fine)
+- **Go** 1.22+
 - **protoc** + `protoc-gen-go` + `protoc-gen-go-grpc` — only if you modify the `.proto` file
 
 ## Regenerating after a proto change
