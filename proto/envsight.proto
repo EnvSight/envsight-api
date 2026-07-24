@@ -47,7 +47,11 @@ message NodeState {
   repeated PortInfo ports = 3;
   repeated GpuInfo gpus = 4;       // GPU usage may change dynamically
   bool has_physical_tty = 5;
-  bool is_idle = 6;                // Agent-side idle detection flag
+  // Field 6 (is_idle) removed: idle determination moved server-side so the
+  // thresholds are configured in one place (the server), not baked into every
+  // agent. Agents only report raw signals (cpu/ports/gpu/tty).
+  reserved 6;
+  reserved "is_idle";
   bool require_db_save = 7;        // When true, server persists a SysMetric row
   repeated GpuProcess gpu_processes = 8;
   string diagnostic_snapshot = 9;  // Text snapshot produced by the diagnose command

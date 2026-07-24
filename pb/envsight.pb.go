@@ -250,7 +250,6 @@ type NodeState struct {
 	Ports              []*PortInfo            `protobuf:"bytes,3,rep,name=ports,proto3" json:"ports,omitempty"`
 	Gpus               []*GpuInfo             `protobuf:"bytes,4,rep,name=gpus,proto3" json:"gpus,omitempty"` // GPU usage may change dynamically
 	HasPhysicalTty     bool                   `protobuf:"varint,5,opt,name=has_physical_tty,json=hasPhysicalTty,proto3" json:"has_physical_tty,omitempty"`
-	IsIdle             bool                   `protobuf:"varint,6,opt,name=is_idle,json=isIdle,proto3" json:"is_idle,omitempty"`                        // Agent-side idle detection flag
 	RequireDbSave      bool                   `protobuf:"varint,7,opt,name=require_db_save,json=requireDbSave,proto3" json:"require_db_save,omitempty"` // When true, server persists a SysMetric row
 	GpuProcesses       []*GpuProcess          `protobuf:"bytes,8,rep,name=gpu_processes,json=gpuProcesses,proto3" json:"gpu_processes,omitempty"`
 	DiagnosticSnapshot string                 `protobuf:"bytes,9,opt,name=diagnostic_snapshot,json=diagnosticSnapshot,proto3" json:"diagnostic_snapshot,omitempty"` // Text snapshot produced by the diagnose command
@@ -319,13 +318,6 @@ func (x *NodeState) GetGpus() []*GpuInfo {
 func (x *NodeState) GetHasPhysicalTty() bool {
 	if x != nil {
 		return x.HasPhysicalTty
-	}
-	return false
-}
-
-func (x *NodeState) GetIsIdle() bool {
-	if x != nil {
-		return x.IsIdle
 	}
 	return false
 }
@@ -748,18 +740,17 @@ const file_envsight_proto_rawDesc = "" +
 	"memTotalMb\x12\"\n" +
 	"\rdisk_total_mb\x18\x06 \x01(\x04R\vdiskTotalMb\x12%\n" +
 	"\x04gpus\x18\a \x03(\v2\x11.envsight.GpuInfoR\x04gpus\x12%\n" +
-	"\x0ecloud_provider\x18\b \x01(\tR\rcloudProvider\"\xff\x02\n" +
+	"\x0ecloud_provider\x18\b \x01(\tR\rcloudProvider\"\xf5\x02\n" +
 	"\tNodeState\x12\x1d\n" +
 	"\n" +
 	"agent_uuid\x18\x01 \x01(\tR\tagentUuid\x12+\n" +
 	"\ametrics\x18\x02 \x01(\v2\x11.envsight.MetricsR\ametrics\x12(\n" +
 	"\x05ports\x18\x03 \x03(\v2\x12.envsight.PortInfoR\x05ports\x12%\n" +
 	"\x04gpus\x18\x04 \x03(\v2\x11.envsight.GpuInfoR\x04gpus\x12(\n" +
-	"\x10has_physical_tty\x18\x05 \x01(\bR\x0ehasPhysicalTty\x12\x17\n" +
-	"\ais_idle\x18\x06 \x01(\bR\x06isIdle\x12&\n" +
+	"\x10has_physical_tty\x18\x05 \x01(\bR\x0ehasPhysicalTty\x12&\n" +
 	"\x0frequire_db_save\x18\a \x01(\bR\rrequireDbSave\x129\n" +
 	"\rgpu_processes\x18\b \x03(\v2\x14.envsight.GpuProcessR\fgpuProcesses\x12/\n" +
-	"\x13diagnostic_snapshot\x18\t \x01(\tR\x12diagnosticSnapshot\"\xfc\x01\n" +
+	"\x13diagnostic_snapshot\x18\t \x01(\tR\x12diagnosticSnapshotJ\x04\b\x06\x10\aR\ais_idle\"\xfc\x01\n" +
 	"\aMetrics\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12\x1e\n" +
