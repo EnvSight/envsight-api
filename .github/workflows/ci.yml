@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go build ./...
+      - run: go vet ./...
+
+  # This module's whole purpose is being the single source of truth for the
+  # wire contract. Committed pb/ drifting from proto/ silently breaks the
+  # agent/server compatibility guarantee, so the drift check is the one job
+  # that must never be skipped.
+  proto-drift:
+    name: Generated code matches proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Deliberately NOT `apt-get install protobuf-compiler`: Ubuntu ships a
+      # far older protoc, and the compiler version is stamped into every
+      # generated file's header. A mismatch turns `make verify` into a
+      # permanent false positive. Read the pinned version out of the Makefile
+      # so there is exactly one place to bump.
+      - name: Install pinned protoc
+        run: |
+          version="$(make -s print-protoc-version)"
+          echo "Installing protoc $version"
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${version}/protoc-${version}-linux-x86_64.zip"
+          unzip -q /tmp/protoc.zip -d /tmp/protoc
+          sudo cp /tmp/protoc/bin/protoc /usr/local/bin/
+          sudo cp -r /tmp/protoc/include/* /usr/local/include/
+          protoc --version
+
+      # `make verify` runs `make generate` (which asserts the protoc version)
+      # and then fails on any git diff under pb/.
+      - name: make verify
+        run: make verify
