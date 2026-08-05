@@ -11,7 +11,7 @@ Previously each side kept its own copy of `envsight.proto` and the generated `*.
 - The server's `go_package` pointing at the agent's module path, papered over with a hand-edited `package pb`.
 - The two proto copies and their generated code drifting out of sync (stripped comments, stale annotations).
 
-A dedicated, MIT-licensed module fixes all three at once: one proto, one generator, one import path, and a CI target that rejects drift.
+A dedicated module fixes all three at once: one proto, one generator, one import path, and a CI target that rejects drift.
 
 ## Structure
 
@@ -71,4 +71,10 @@ This module follows [Go module versioning](https://go.dev/doc/modules/version-nu
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). This permissive license lets both the MIT-licensed agent and the proprietary-licensed server depend on it cleanly.
+Apache 2.0 — see [LICENSE](./LICENSE) and [NOTICE](./NOTICE). The agent and the server are under the same licence, so the whole of EnvSight is one licence to review rather than two.
+
+This module was MIT until `v1.2.0`, and those tags stay MIT: a published version can never be relicensed. `v1.3.0` onwards is Apache.
+
+The reason for moving is section 3, the express patent grant, which MIT has no equivalent of. That matters more here than in the repositories that depend on this one: what this module contains is a wire protocol, and protocols are among the most heavily patented things in software. Anyone writing their own implementation against this contract — the use this repository is public for — is entitled to know they have a patent licence from every contributor, rather than to rely on one being implied.
+
+The trade is that Apache 2.0 is incompatible with GPLv2 where MIT was compatible with everything. Vendoring this into a GPLv2-only codebase is no longer possible; re-implementing from `proto/envsight.proto` always is.
