@@ -7,7 +7,8 @@ version, and a released version can never be altered afterwards.
 
 ## Licence of contributions
 
-MIT, and contributions arrive under the same terms — inbound equals outbound.
+Apache 2.0, and contributions arrive under the same terms — section 5 of the
+licence says so, so there is no paperwork.
 
 There is no contributor licence agreement. One would buy the right to
 relicense your code later; that is not planned, and a signature demanded up
