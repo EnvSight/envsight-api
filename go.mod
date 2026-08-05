@@ -1,4 +1,4 @@
-module github.com/Moriaty911/envsight-api
+module github.com/EnvSight/envsight-api
 
 go 1.25.0
 

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package envsight;
 
-option go_package = "github.com/Moriaty911/envsight-api/pb;pb";
+option go_package = "github.com/EnvSight/envsight-api/pb;pb";
 
 // AgentService defines the bidirectional contract between the EnvSight Agent
 // and the EnvSight Server.

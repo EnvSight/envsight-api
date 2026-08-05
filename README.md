@@ -1,6 +1,6 @@
 # EnvSight API
 
-Shared gRPC/Protobuf contract between the [EnvSight Agent](https://github.com/Moriaty911/envsight-agent) and the [EnvSight Server](https://github.com/Moriaty911/envsight-server).
+Shared gRPC/Protobuf contract between the [EnvSight Agent](https://github.com/EnvSight/envsight-agent) and the [EnvSight Server](https://github.com/EnvSight/envsight-server).
 
 This repository is the **single source of truth** for the `AgentService` gRPC contract. Both the agent and the server import the generated Go code from this module instead of maintaining their own copies, so the wire format can never silently drift between the two sides.
 
@@ -23,7 +23,7 @@ envsight-api/
 │   ├── envsight.pb.go
 │   └── envsight_grpc.pb.go
 ├── Makefile             # `make generate` / `make verify`
-└── go.mod               # module github.com/Moriaty911/envsight-api
+└── go.mod               # module github.com/EnvSight/envsight-api
 ```
 
 The generated `pb/` files are committed (not gitignored) so consumers can `go get` without running protoc themselves. This matches the convention used by most Go protobuf modules.
@@ -56,18 +56,18 @@ It regenerates into `pb/` and errors out if `git diff` finds any change — i.e.
 Add the dependency:
 
 ```bash
-go get github.com/Moriaty911/envsight-api
+go get github.com/EnvSight/envsight-api
 ```
 
 Then import the generated package:
 
 ```go
-import pb "github.com/Moriaty911/envsight-api/pb"
+import pb "github.com/EnvSight/envsight-api/pb"
 ```
 
 ## Versioning
 
-This module follows [Go module versioning](https://go.dev/doc/modules/version-numbers). Tag releases with semver (`v1.0.0`, `v1.1.0`, ...). A breaking change to the proto contract requires a major version bump (`v2`), which Go automatically reflects in the import path as `github.com/Moriaty911/envsight-api/v2/pb`.
+This module follows [Go module versioning](https://go.dev/doc/modules/version-numbers). Tag releases with semver (`v1.0.0`, `v1.1.0`, ...). A breaking change to the proto contract requires a major version bump (`v2`), which Go automatically reflects in the import path as `github.com/EnvSight/envsight-api/v2/pb`.
 
 ## License
 

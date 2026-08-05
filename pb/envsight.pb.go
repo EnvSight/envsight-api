@@ -788,7 +788,7 @@ const file_envsight_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\tR\apayload2\x93\x01\n" +
 	"\fAgentService\x12A\n" +
 	"\bRegister\x12\x19.envsight.RegisterRequest\x1a\x1a.envsight.RegisterResponse\x12@\n" +
-	"\fStreamStatus\x12\x13.envsight.NodeState\x1a\x17.envsight.ServerCommand(\x010\x01B*Z(github.com/Moriaty911/envsight-api/pb;pbb\x06proto3"
+	"\fStreamStatus\x12\x13.envsight.NodeState\x1a\x17.envsight.ServerCommand(\x010\x01B(Z&github.com/EnvSight/envsight-api/pb;pbb\x06proto3"
 
 var (
 	file_envsight_proto_rawDescOnce sync.Once
