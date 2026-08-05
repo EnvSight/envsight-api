@@ -1,0 +1,94 @@
+name: Tag guard
+
+# A release tag on this module is the most permanent thing anyone here can
+# publish. Once `github.com/EnvSight/envsight-api@vX.Y.Z` has been fetched
+# once it is recorded in Go's checksum database, and from then on the mapping
+# from that version to that tree cannot be changed — not by retagging, not by
+# deleting the tag, not by making the repository private. The agent and the
+# server both resolve this module by version, so a tag cut from the wrong
+# commit is a wire contract nobody reviewed, shipped permanently.
+#
+# Branch protection does not cover this. It governs commits arriving on main;
+# a tag can be pushed from any local commit that never went near a pull
+# request, and the protected branch never notices. The tag ruleset alongside
+# this workflow makes a tag immutable once it exists — it cannot be deleted or
+# moved — but GitHub has no rule for "must point at a commit that is on main",
+# hence the ancestry check below.
+#
+# The name check is here for a different reason. A tag_name_pattern rule was
+# tried in the ruleset first and turned out to be worse than nothing: the API
+# accepts it, the settings page displays it, and it is silently never
+# evaluated on this plan. A push of `vbadname` sailed through while the rule
+# sat there looking active. Whatever this repository claims to enforce, it
+# should actually enforce, so the check lives where it demonstrably runs.
+#
+# It is detective, not preventive: the tag exists by the time this runs. That
+# is the honest limit of what the platform allows, and it is still worth
+# having, because the failure it catches is otherwise silent. A red run here
+# means: delete the tag and cut it again from main, now, before anything
+# fetches it.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  on-main:
+    name: Tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      # The tagged commit alone is not enough — deciding whether it is on main
+      # needs main's history too, so the shallow default will not do.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag is a plain semantic version
+        run: |
+          set -euo pipefail
+          # Go resolves versions by parsing this string. A tag that is not a
+          # valid semantic version is either ignored by the module proxy or
+          # ordered somewhere nobody expects, so a release nobody can depend
+          # on is the quiet outcome of getting it wrong.
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::${GITHUB_REF_NAME} is not a release version."
+            echo "Tags on this module must read vMAJOR.MINOR.PATCH — v1.2.0."
+            exit 1
+          fi
+          echo "OK: ${GITHUB_REF_NAME}"
+
+      - name: Verify the tagged commit is an ancestor of main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+
+          tagged="$(git rev-parse HEAD)"
+          echo "tag:  ${GITHUB_REF_NAME} -> ${tagged}"
+          echo "main: $(git rev-parse origin/main)"
+
+          # --is-ancestor, not "is main's tip": tagging an older commit on main
+          # is legitimate (a patch release cut from before later work landed).
+          # What must never happen is tagging a commit that is not on main at
+          # all, which is exactly what this excludes.
+          if git merge-base --is-ancestor "$tagged" origin/main; then
+            echo "OK: the tagged commit is on main."
+          else
+            echo "::error::${GITHUB_REF_NAME} points at a commit that is not on main."
+            echo "Every released version must be reachable from main, so that what"
+            echo "was published is what was reviewed. Delete this tag and cut it"
+            echo "again from a commit on main before anything fetches it:"
+            echo
+            echo "  git push origin :refs/tags/${GITHUB_REF_NAME}"
+            echo "  git tag -d ${GITHUB_REF_NAME}"
+            echo
+            echo "Note that the tag ruleset forbids moving a tag, so replacing it"
+            echo "means deleting it first — and deletion is itself blocked, so an"
+            echo "admin has to lift the rule. That friction is deliberate: by the"
+            echo "time a wrong tag is public it may already be in Go's checksum"
+            echo "database, where it can never be changed. Prefer cutting a new"
+            echo "patch version over trying to reuse this one."
+            exit 1
+          fi
