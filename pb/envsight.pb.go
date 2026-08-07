@@ -152,6 +152,9 @@ type HostInfo struct {
 	DiskTotalMb   uint64                 `protobuf:"varint,6,opt,name=disk_total_mb,json=diskTotalMb,proto3" json:"disk_total_mb,omitempty"`
 	Gpus          []*GpuInfo             `protobuf:"bytes,7,rep,name=gpus,proto3" json:"gpus,omitempty"`
 	CloudProvider string                 `protobuf:"bytes,8,opt,name=cloud_provider,json=cloudProvider,proto3" json:"cloud_provider,omitempty"`
+	// Swap capacity. Static, so it belongs with the rest of the inventory
+	// rather than being repeated on every heartbeat beside swap_used_mb.
+	SwapTotalMb   *uint64 `protobuf:"varint,9,opt,name=swap_total_mb,json=swapTotalMb,proto3,oneof" json:"swap_total_mb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -242,6 +245,13 @@ func (x *HostInfo) GetCloudProvider() string {
 	return ""
 }
 
+func (x *HostInfo) GetSwapTotalMb() uint64 {
+	if x != nil && x.SwapTotalMb != nil {
+		return *x.SwapTotalMb
+	}
+	return 0
+}
+
 // NodeState is the dynamic per-heartbeat payload streamed by the agent.
 type NodeState struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -253,8 +263,11 @@ type NodeState struct {
 	RequireDbSave      bool                   `protobuf:"varint,7,opt,name=require_db_save,json=requireDbSave,proto3" json:"require_db_save,omitempty"` // When true, server persists a SysMetric row
 	GpuProcesses       []*GpuProcess          `protobuf:"bytes,8,rep,name=gpu_processes,json=gpuProcesses,proto3" json:"gpu_processes,omitempty"`
 	DiagnosticSnapshot string                 `protobuf:"bytes,9,opt,name=diagnostic_snapshot,json=diagnosticSnapshot,proto3" json:"diagnostic_snapshot,omitempty"` // Text snapshot produced by the diagnose command
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Every mounted filesystem, for the live view. Empty on burst beats, which
+	// carry only what changes between them — capacity does not.
+	Filesystems   []*FilesystemInfo `protobuf:"bytes,10,rep,name=filesystems,proto3" json:"filesystems,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeState) Reset() {
@@ -343,6 +356,28 @@ func (x *NodeState) GetDiagnosticSnapshot() string {
 	return ""
 }
 
+func (x *NodeState) GetFilesystems() []*FilesystemInfo {
+	if x != nil {
+		return x.Filesystems
+	}
+	return nil
+}
+
+// Metrics is one machine's reading at one instant.
+//
+// Everything added after field 8 is `optional`, and deliberately so. proto3
+// cannot tell a zero from an absent value in a plain scalar, and for every one
+// of these fields zero is a reading a machine genuinely produces: no network
+// traffic, no steal, no swap in use. Without explicit presence:
+//
+//   - the agent's first beat, which has no previous counter to subtract from,
+//     would report 0 B/s — a host saturating its link would draw as idle;
+//   - the server could not tell an agent too old to send a field from a new
+//     one reporting zero, and would chart a flat line along the floor for
+//     every machine that has not been upgraded yet.
+//
+// One presence bit per field, against roughly 8KB per agent per day. The
+// wrong-looking chart costs more.
 type Metrics struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CpuPercent    float64                `protobuf:"fixed64,1,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
@@ -353,8 +388,63 @@ type Metrics struct {
 	Load_1        float64                `protobuf:"fixed64,6,opt,name=load_1,json=load1,proto3" json:"load_1,omitempty"`
 	Load_5        float64                `protobuf:"fixed64,7,opt,name=load_5,json=load5,proto3" json:"load_5,omitempty"`
 	Load_15       float64                `protobuf:"fixed64,8,opt,name=load_15,json=load15,proto3" json:"load_15,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Time the hypervisor gave to somebody else. On a cloud host this is the
+	// only evidence that slowness is the neighbour's fault and not the
+	// application's — the guest sees low utilisation and high latency, and
+	// nothing else in this message explains it.
+	CpuStealPercent *float64 `protobuf:"fixed64,9,opt,name=cpu_steal_percent,json=cpuStealPercent,proto3,oneof" json:"cpu_steal_percent,omitempty"`
+	// Time blocked on I/O. High iowait alongside high disk_await_ms is the
+	// difference between "the CPU is busy" and "the CPU is waiting for a disk".
+	CpuIowaitPercent *float64 `protobuf:"fixed64,10,opt,name=cpu_iowait_percent,json=cpuIowaitPercent,proto3,oneof" json:"cpu_iowait_percent,omitempty"`
+	// What the kernel believes can still be allocated without swapping. Reported
+	// alongside mem_used_mb rather than replacing it: "used" is computed
+	// differently on every platform and counts caches the kernel would happily
+	// drop, so it answers a different question than "is this host under memory
+	// pressure".
+	MemAvailableMb *uint64 `protobuf:"varint,11,opt,name=mem_available_mb,json=memAvailableMb,proto3,oneof" json:"mem_available_mb,omitempty"`
+	// A host that has started swapping is a host in trouble, and mem_used_mb
+	// shows none of it.
+	SwapUsedMb *uint64 `protobuf:"varint,12,opt,name=swap_used_mb,json=swapUsedMb,proto3,oneof" json:"swap_used_mb,omitempty"`
+	// The fullest real filesystem, and which one it is. disk_used_mb covers the
+	// root only, and the partition that fills is usually not root — it is /var
+	// under log growth or a separately mounted data volume. Two scalars rather
+	// than a series per mount: charting one number per host stays one line,
+	// while "is anything about to fill up" is a yes-or-no question that needs no
+	// history. The full list travels in NodeState.filesystems for the live view.
+	DiskFullestPercent *float64 `protobuf:"fixed64,13,opt,name=disk_fullest_percent,json=diskFullestPercent,proto3,oneof" json:"disk_fullest_percent,omitempty"`
+	DiskFullestMount   *string  `protobuf:"bytes,14,opt,name=disk_fullest_mount,json=diskFullestMount,proto3,oneof" json:"disk_fullest_mount,omitempty"`
+	// Inodes on the root filesystem. The classic cause of "the disk is not full
+	// but writes fail", and invisible in every byte-based measure.
+	DiskInodesPercent *float64 `protobuf:"fixed64,15,opt,name=disk_inodes_percent,json=diskInodesPercent,proto3,oneof" json:"disk_inodes_percent,omitempty"`
+	// Share of the interval the device had I/O in flight — what `iostat -x`
+	// calls %util. Throughput alone cannot distinguish an idle disk from a
+	// saturated one: 5 MB/s is nothing for an NVMe and everything for a tired
+	// spindle. Known limitation: on devices with deep queues this saturates at
+	// 100% before the device does, which is why await travels with it.
+	DiskUtilPercent *float64 `protobuf:"fixed64,16,opt,name=disk_util_percent,json=diskUtilPercent,proto3,oneof" json:"disk_util_percent,omitempty"`
+	// Mean wait per I/O. The number that actually says a disk is the
+	// bottleneck.
+	DiskAwaitMs  *float64 `protobuf:"fixed64,17,opt,name=disk_await_ms,json=diskAwaitMs,proto3,oneof" json:"disk_await_ms,omitempty"`
+	DiskReadBps  *float64 `protobuf:"fixed64,18,opt,name=disk_read_bps,json=diskReadBps,proto3,oneof" json:"disk_read_bps,omitempty"`
+	DiskWriteBps *float64 `protobuf:"fixed64,19,opt,name=disk_write_bps,json=diskWriteBps,proto3,oneof" json:"disk_write_bps,omitempty"`
+	// --- Network -------------------------------------------------------------
+	// Physical interfaces only. Loopback would count local traffic that never
+	// leaves the host, and container bridges (docker0, br-*, veth*) count the
+	// same packets twice — once on the bridge and once on the interface behind
+	// it. Which interfaces were summed is not carried here; a host where the
+	// answer is surprising is a host with bridges, and NodeState.filesystems is
+	// not the place to explain it either.
+	NetRxBps *float64 `protobuf:"fixed64,20,opt,name=net_rx_bps,json=netRxBps,proto3,oneof" json:"net_rx_bps,omitempty"`
+	NetTxBps *float64 `protobuf:"fixed64,21,opt,name=net_tx_bps,json=netTxBps,proto3,oneof" json:"net_tx_bps,omitempty"`
+	// Both are cheap and both catch a class of failure nothing else here shows:
+	// a leak that forks without reaping, and TIME_WAIT or ESTABLISHED piling up
+	// on a host whose listening ports look entirely normal.
+	ProcessCount   *uint32 `protobuf:"varint,22,opt,name=process_count,json=processCount,proto3,oneof" json:"process_count,omitempty"`
+	ThreadCount    *uint32 `protobuf:"varint,23,opt,name=thread_count,json=threadCount,proto3,oneof" json:"thread_count,omitempty"`
+	TcpEstablished *uint32 `protobuf:"varint,24,opt,name=tcp_established,json=tcpEstablished,proto3,oneof" json:"tcp_established,omitempty"`
+	TcpTimeWait    *uint32 `protobuf:"varint,25,opt,name=tcp_time_wait,json=tcpTimeWait,proto3,oneof" json:"tcp_time_wait,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Metrics) Reset() {
@@ -443,6 +533,220 @@ func (x *Metrics) GetLoad_15() float64 {
 	return 0
 }
 
+func (x *Metrics) GetCpuStealPercent() float64 {
+	if x != nil && x.CpuStealPercent != nil {
+		return *x.CpuStealPercent
+	}
+	return 0
+}
+
+func (x *Metrics) GetCpuIowaitPercent() float64 {
+	if x != nil && x.CpuIowaitPercent != nil {
+		return *x.CpuIowaitPercent
+	}
+	return 0
+}
+
+func (x *Metrics) GetMemAvailableMb() uint64 {
+	if x != nil && x.MemAvailableMb != nil {
+		return *x.MemAvailableMb
+	}
+	return 0
+}
+
+func (x *Metrics) GetSwapUsedMb() uint64 {
+	if x != nil && x.SwapUsedMb != nil {
+		return *x.SwapUsedMb
+	}
+	return 0
+}
+
+func (x *Metrics) GetDiskFullestPercent() float64 {
+	if x != nil && x.DiskFullestPercent != nil {
+		return *x.DiskFullestPercent
+	}
+	return 0
+}
+
+func (x *Metrics) GetDiskFullestMount() string {
+	if x != nil && x.DiskFullestMount != nil {
+		return *x.DiskFullestMount
+	}
+	return ""
+}
+
+func (x *Metrics) GetDiskInodesPercent() float64 {
+	if x != nil && x.DiskInodesPercent != nil {
+		return *x.DiskInodesPercent
+	}
+	return 0
+}
+
+func (x *Metrics) GetDiskUtilPercent() float64 {
+	if x != nil && x.DiskUtilPercent != nil {
+		return *x.DiskUtilPercent
+	}
+	return 0
+}
+
+func (x *Metrics) GetDiskAwaitMs() float64 {
+	if x != nil && x.DiskAwaitMs != nil {
+		return *x.DiskAwaitMs
+	}
+	return 0
+}
+
+func (x *Metrics) GetDiskReadBps() float64 {
+	if x != nil && x.DiskReadBps != nil {
+		return *x.DiskReadBps
+	}
+	return 0
+}
+
+func (x *Metrics) GetDiskWriteBps() float64 {
+	if x != nil && x.DiskWriteBps != nil {
+		return *x.DiskWriteBps
+	}
+	return 0
+}
+
+func (x *Metrics) GetNetRxBps() float64 {
+	if x != nil && x.NetRxBps != nil {
+		return *x.NetRxBps
+	}
+	return 0
+}
+
+func (x *Metrics) GetNetTxBps() float64 {
+	if x != nil && x.NetTxBps != nil {
+		return *x.NetTxBps
+	}
+	return 0
+}
+
+func (x *Metrics) GetProcessCount() uint32 {
+	if x != nil && x.ProcessCount != nil {
+		return *x.ProcessCount
+	}
+	return 0
+}
+
+func (x *Metrics) GetThreadCount() uint32 {
+	if x != nil && x.ThreadCount != nil {
+		return *x.ThreadCount
+	}
+	return 0
+}
+
+func (x *Metrics) GetTcpEstablished() uint32 {
+	if x != nil && x.TcpEstablished != nil {
+		return *x.TcpEstablished
+	}
+	return 0
+}
+
+func (x *Metrics) GetTcpTimeWait() uint32 {
+	if x != nil && x.TcpTimeWait != nil {
+		return *x.TcpTimeWait
+	}
+	return 0
+}
+
+// FilesystemInfo is one mounted filesystem, for the live detail view.
+//
+// Not persisted. It follows the pattern ports and GPU processes already use:
+// reported every beat, cached for the screen, and never written to a metrics
+// row. "Which disk is nearly full right now" is worth knowing; "how full /tmp
+// was three weeks ago" is not, and a series per mount would turn one row per
+// host per sample into one row per mount.
+//
+// Pseudo-filesystems are excluded before this is filled: tmpfs sits at 100% on
+// a healthy host, every installed snap is its own 100% squashfs, and overlay
+// mounts double-count the disk underneath them.
+type FilesystemInfo struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Mountpoint        string                 `protobuf:"bytes,1,opt,name=mountpoint,proto3" json:"mountpoint,omitempty"`
+	Device            string                 `protobuf:"bytes,2,opt,name=device,proto3" json:"device,omitempty"`
+	Fstype            string                 `protobuf:"bytes,3,opt,name=fstype,proto3" json:"fstype,omitempty"`
+	TotalMb           uint64                 `protobuf:"varint,4,opt,name=total_mb,json=totalMb,proto3" json:"total_mb,omitempty"`
+	UsedMb            uint64                 `protobuf:"varint,5,opt,name=used_mb,json=usedMb,proto3" json:"used_mb,omitempty"`
+	InodesUsedPercent float64                `protobuf:"fixed64,6,opt,name=inodes_used_percent,json=inodesUsedPercent,proto3" json:"inodes_used_percent,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *FilesystemInfo) Reset() {
+	*x = FilesystemInfo{}
+	mi := &file_envsight_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilesystemInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilesystemInfo) ProtoMessage() {}
+
+func (x *FilesystemInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_envsight_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilesystemInfo.ProtoReflect.Descriptor instead.
+func (*FilesystemInfo) Descriptor() ([]byte, []int) {
+	return file_envsight_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *FilesystemInfo) GetMountpoint() string {
+	if x != nil {
+		return x.Mountpoint
+	}
+	return ""
+}
+
+func (x *FilesystemInfo) GetDevice() string {
+	if x != nil {
+		return x.Device
+	}
+	return ""
+}
+
+func (x *FilesystemInfo) GetFstype() string {
+	if x != nil {
+		return x.Fstype
+	}
+	return ""
+}
+
+func (x *FilesystemInfo) GetTotalMb() uint64 {
+	if x != nil {
+		return x.TotalMb
+	}
+	return 0
+}
+
+func (x *FilesystemInfo) GetUsedMb() uint64 {
+	if x != nil {
+		return x.UsedMb
+	}
+	return 0
+}
+
+func (x *FilesystemInfo) GetInodesUsedPercent() float64 {
+	if x != nil {
+		return x.InodesUsedPercent
+	}
+	return 0
+}
+
 type GpuInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Vendor        string                 `protobuf:"bytes,1,opt,name=vendor,proto3" json:"vendor,omitempty"`
@@ -456,7 +760,7 @@ type GpuInfo struct {
 
 func (x *GpuInfo) Reset() {
 	*x = GpuInfo{}
-	mi := &file_envsight_proto_msgTypes[5]
+	mi := &file_envsight_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -468,7 +772,7 @@ func (x *GpuInfo) String() string {
 func (*GpuInfo) ProtoMessage() {}
 
 func (x *GpuInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_envsight_proto_msgTypes[5]
+	mi := &file_envsight_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -481,7 +785,7 @@ func (x *GpuInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuInfo.ProtoReflect.Descriptor instead.
 func (*GpuInfo) Descriptor() ([]byte, []int) {
-	return file_envsight_proto_rawDescGZIP(), []int{5}
+	return file_envsight_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GpuInfo) GetVendor() string {
@@ -532,7 +836,7 @@ type GpuProcess struct {
 
 func (x *GpuProcess) Reset() {
 	*x = GpuProcess{}
-	mi := &file_envsight_proto_msgTypes[6]
+	mi := &file_envsight_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +848,7 @@ func (x *GpuProcess) String() string {
 func (*GpuProcess) ProtoMessage() {}
 
 func (x *GpuProcess) ProtoReflect() protoreflect.Message {
-	mi := &file_envsight_proto_msgTypes[6]
+	mi := &file_envsight_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +861,7 @@ func (x *GpuProcess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuProcess.ProtoReflect.Descriptor instead.
 func (*GpuProcess) Descriptor() ([]byte, []int) {
-	return file_envsight_proto_rawDescGZIP(), []int{6}
+	return file_envsight_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GpuProcess) GetPid() uint32 {
@@ -607,7 +911,7 @@ type PortInfo struct {
 
 func (x *PortInfo) Reset() {
 	*x = PortInfo{}
-	mi := &file_envsight_proto_msgTypes[7]
+	mi := &file_envsight_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -619,7 +923,7 @@ func (x *PortInfo) String() string {
 func (*PortInfo) ProtoMessage() {}
 
 func (x *PortInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_envsight_proto_msgTypes[7]
+	mi := &file_envsight_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -632,7 +936,7 @@ func (x *PortInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortInfo.ProtoReflect.Descriptor instead.
 func (*PortInfo) Descriptor() ([]byte, []int) {
-	return file_envsight_proto_rawDescGZIP(), []int{7}
+	return file_envsight_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PortInfo) GetPort() uint32 {
@@ -673,7 +977,7 @@ type ServerCommand struct {
 
 func (x *ServerCommand) Reset() {
 	*x = ServerCommand{}
-	mi := &file_envsight_proto_msgTypes[8]
+	mi := &file_envsight_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -685,7 +989,7 @@ func (x *ServerCommand) String() string {
 func (*ServerCommand) ProtoMessage() {}
 
 func (x *ServerCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_envsight_proto_msgTypes[8]
+	mi := &file_envsight_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -698,7 +1002,7 @@ func (x *ServerCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerCommand.ProtoReflect.Descriptor instead.
 func (*ServerCommand) Descriptor() ([]byte, []int) {
-	return file_envsight_proto_rawDescGZIP(), []int{8}
+	return file_envsight_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ServerCommand) GetAction() string {
@@ -729,7 +1033,7 @@ const file_envsight_proto_rawDesc = "" +
 	"\n" +
 	"agent_uuid\x18\x01 \x01(\tR\tagentUuid\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\x91\x02\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xcc\x02\n" +
 	"\bHostInfo\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x17\n" +
 	"\aos_info\x18\x02 \x01(\tR\x06osInfo\x12\x1f\n" +
@@ -740,7 +1044,9 @@ const file_envsight_proto_rawDesc = "" +
 	"memTotalMb\x12\"\n" +
 	"\rdisk_total_mb\x18\x06 \x01(\x04R\vdiskTotalMb\x12%\n" +
 	"\x04gpus\x18\a \x03(\v2\x11.envsight.GpuInfoR\x04gpus\x12%\n" +
-	"\x0ecloud_provider\x18\b \x01(\tR\rcloudProvider\"\xf5\x02\n" +
+	"\x0ecloud_provider\x18\b \x01(\tR\rcloudProvider\x12'\n" +
+	"\rswap_total_mb\x18\t \x01(\x04H\x00R\vswapTotalMb\x88\x01\x01B\x10\n" +
+	"\x0e_swap_total_mb\"\xb1\x03\n" +
 	"\tNodeState\x12\x1d\n" +
 	"\n" +
 	"agent_uuid\x18\x01 \x01(\tR\tagentUuid\x12+\n" +
@@ -750,7 +1056,10 @@ const file_envsight_proto_rawDesc = "" +
 	"\x10has_physical_tty\x18\x05 \x01(\bR\x0ehasPhysicalTty\x12&\n" +
 	"\x0frequire_db_save\x18\a \x01(\bR\rrequireDbSave\x129\n" +
 	"\rgpu_processes\x18\b \x03(\v2\x14.envsight.GpuProcessR\fgpuProcesses\x12/\n" +
-	"\x13diagnostic_snapshot\x18\t \x01(\tR\x12diagnosticSnapshotJ\x04\b\x06\x10\aR\ais_idle\"\xfc\x01\n" +
+	"\x13diagnostic_snapshot\x18\t \x01(\tR\x12diagnosticSnapshot\x12:\n" +
+	"\vfilesystems\x18\n" +
+	" \x03(\v2\x18.envsight.FilesystemInfoR\vfilesystemsJ\x04\b\x06\x10\aR\ais_idle\"\xc1\n" +
+	"\n" +
 	"\aMetrics\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12\x1e\n" +
@@ -762,7 +1071,55 @@ const file_envsight_proto_rawDesc = "" +
 	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12\x15\n" +
 	"\x06load_1\x18\x06 \x01(\x01R\x05load1\x12\x15\n" +
 	"\x06load_5\x18\a \x01(\x01R\x05load5\x12\x17\n" +
-	"\aload_15\x18\b \x01(\x01R\x06load15\"\xa2\x01\n" +
+	"\aload_15\x18\b \x01(\x01R\x06load15\x12/\n" +
+	"\x11cpu_steal_percent\x18\t \x01(\x01H\x00R\x0fcpuStealPercent\x88\x01\x01\x121\n" +
+	"\x12cpu_iowait_percent\x18\n" +
+	" \x01(\x01H\x01R\x10cpuIowaitPercent\x88\x01\x01\x12-\n" +
+	"\x10mem_available_mb\x18\v \x01(\x04H\x02R\x0ememAvailableMb\x88\x01\x01\x12%\n" +
+	"\fswap_used_mb\x18\f \x01(\x04H\x03R\n" +
+	"swapUsedMb\x88\x01\x01\x125\n" +
+	"\x14disk_fullest_percent\x18\r \x01(\x01H\x04R\x12diskFullestPercent\x88\x01\x01\x121\n" +
+	"\x12disk_fullest_mount\x18\x0e \x01(\tH\x05R\x10diskFullestMount\x88\x01\x01\x123\n" +
+	"\x13disk_inodes_percent\x18\x0f \x01(\x01H\x06R\x11diskInodesPercent\x88\x01\x01\x12/\n" +
+	"\x11disk_util_percent\x18\x10 \x01(\x01H\aR\x0fdiskUtilPercent\x88\x01\x01\x12'\n" +
+	"\rdisk_await_ms\x18\x11 \x01(\x01H\bR\vdiskAwaitMs\x88\x01\x01\x12'\n" +
+	"\rdisk_read_bps\x18\x12 \x01(\x01H\tR\vdiskReadBps\x88\x01\x01\x12)\n" +
+	"\x0edisk_write_bps\x18\x13 \x01(\x01H\n" +
+	"R\fdiskWriteBps\x88\x01\x01\x12!\n" +
+	"\n" +
+	"net_rx_bps\x18\x14 \x01(\x01H\vR\bnetRxBps\x88\x01\x01\x12!\n" +
+	"\n" +
+	"net_tx_bps\x18\x15 \x01(\x01H\fR\bnetTxBps\x88\x01\x01\x12(\n" +
+	"\rprocess_count\x18\x16 \x01(\rH\rR\fprocessCount\x88\x01\x01\x12&\n" +
+	"\fthread_count\x18\x17 \x01(\rH\x0eR\vthreadCount\x88\x01\x01\x12,\n" +
+	"\x0ftcp_established\x18\x18 \x01(\rH\x0fR\x0etcpEstablished\x88\x01\x01\x12'\n" +
+	"\rtcp_time_wait\x18\x19 \x01(\rH\x10R\vtcpTimeWait\x88\x01\x01B\x14\n" +
+	"\x12_cpu_steal_percentB\x15\n" +
+	"\x13_cpu_iowait_percentB\x13\n" +
+	"\x11_mem_available_mbB\x0f\n" +
+	"\r_swap_used_mbB\x17\n" +
+	"\x15_disk_fullest_percentB\x15\n" +
+	"\x13_disk_fullest_mountB\x16\n" +
+	"\x14_disk_inodes_percentB\x14\n" +
+	"\x12_disk_util_percentB\x10\n" +
+	"\x0e_disk_await_msB\x10\n" +
+	"\x0e_disk_read_bpsB\x11\n" +
+	"\x0f_disk_write_bpsB\r\n" +
+	"\v_net_rx_bpsB\r\n" +
+	"\v_net_tx_bpsB\x10\n" +
+	"\x0e_process_countB\x0f\n" +
+	"\r_thread_countB\x12\n" +
+	"\x10_tcp_establishedB\x10\n" +
+	"\x0e_tcp_time_wait\"\xc4\x01\n" +
+	"\x0eFilesystemInfo\x12\x1e\n" +
+	"\n" +
+	"mountpoint\x18\x01 \x01(\tR\n" +
+	"mountpoint\x12\x16\n" +
+	"\x06device\x18\x02 \x01(\tR\x06device\x12\x16\n" +
+	"\x06fstype\x18\x03 \x01(\tR\x06fstype\x12\x19\n" +
+	"\btotal_mb\x18\x04 \x01(\x04R\atotalMb\x12\x17\n" +
+	"\aused_mb\x18\x05 \x01(\x04R\x06usedMb\x12.\n" +
+	"\x13inodes_used_percent\x18\x06 \x01(\x01R\x11inodesUsedPercent\"\xa2\x01\n" +
 	"\aGpuInfo\x12\x16\n" +
 	"\x06vendor\x18\x01 \x01(\tR\x06vendor\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12#\n" +
@@ -802,34 +1159,36 @@ func file_envsight_proto_rawDescGZIP() []byte {
 	return file_envsight_proto_rawDescData
 }
 
-var file_envsight_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_envsight_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_envsight_proto_goTypes = []any{
 	(*RegisterRequest)(nil),  // 0: envsight.RegisterRequest
 	(*RegisterResponse)(nil), // 1: envsight.RegisterResponse
 	(*HostInfo)(nil),         // 2: envsight.HostInfo
 	(*NodeState)(nil),        // 3: envsight.NodeState
 	(*Metrics)(nil),          // 4: envsight.Metrics
-	(*GpuInfo)(nil),          // 5: envsight.GpuInfo
-	(*GpuProcess)(nil),       // 6: envsight.GpuProcess
-	(*PortInfo)(nil),         // 7: envsight.PortInfo
-	(*ServerCommand)(nil),    // 8: envsight.ServerCommand
+	(*FilesystemInfo)(nil),   // 5: envsight.FilesystemInfo
+	(*GpuInfo)(nil),          // 6: envsight.GpuInfo
+	(*GpuProcess)(nil),       // 7: envsight.GpuProcess
+	(*PortInfo)(nil),         // 8: envsight.PortInfo
+	(*ServerCommand)(nil),    // 9: envsight.ServerCommand
 }
 var file_envsight_proto_depIdxs = []int32{
 	2, // 0: envsight.RegisterRequest.host_info:type_name -> envsight.HostInfo
-	5, // 1: envsight.HostInfo.gpus:type_name -> envsight.GpuInfo
+	6, // 1: envsight.HostInfo.gpus:type_name -> envsight.GpuInfo
 	4, // 2: envsight.NodeState.metrics:type_name -> envsight.Metrics
-	7, // 3: envsight.NodeState.ports:type_name -> envsight.PortInfo
-	5, // 4: envsight.NodeState.gpus:type_name -> envsight.GpuInfo
-	6, // 5: envsight.NodeState.gpu_processes:type_name -> envsight.GpuProcess
-	0, // 6: envsight.AgentService.Register:input_type -> envsight.RegisterRequest
-	3, // 7: envsight.AgentService.StreamStatus:input_type -> envsight.NodeState
-	1, // 8: envsight.AgentService.Register:output_type -> envsight.RegisterResponse
-	8, // 9: envsight.AgentService.StreamStatus:output_type -> envsight.ServerCommand
-	8, // [8:10] is the sub-list for method output_type
-	6, // [6:8] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	8, // 3: envsight.NodeState.ports:type_name -> envsight.PortInfo
+	6, // 4: envsight.NodeState.gpus:type_name -> envsight.GpuInfo
+	7, // 5: envsight.NodeState.gpu_processes:type_name -> envsight.GpuProcess
+	5, // 6: envsight.NodeState.filesystems:type_name -> envsight.FilesystemInfo
+	0, // 7: envsight.AgentService.Register:input_type -> envsight.RegisterRequest
+	3, // 8: envsight.AgentService.StreamStatus:input_type -> envsight.NodeState
+	1, // 9: envsight.AgentService.Register:output_type -> envsight.RegisterResponse
+	9, // 10: envsight.AgentService.StreamStatus:output_type -> envsight.ServerCommand
+	9, // [9:11] is the sub-list for method output_type
+	7, // [7:9] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_envsight_proto_init() }
@@ -837,13 +1196,15 @@ func file_envsight_proto_init() {
 	if File_envsight_proto != nil {
 		return
 	}
+	file_envsight_proto_msgTypes[2].OneofWrappers = []any{}
+	file_envsight_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_envsight_proto_rawDesc), len(file_envsight_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
