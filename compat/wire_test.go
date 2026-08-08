@@ -8,6 +8,7 @@
 package compat
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/EnvSight/envsight-api/pb"
@@ -100,6 +101,56 @@ func TestReportedZero_SurvivesAsZero(t *testing.T) {
 	}
 	if got.NetRxBps != nil && *got.NetRxBps != 0 {
 		t.Errorf("net_rx_bps = %v, want 0", *got.NetRxBps)
+	}
+}
+
+// The same presence rule, on the one field where getting it wrong locks a
+// machine out permanently.
+//
+// agent_credential is returned exactly once — on the registration that enrols
+// the machine — and is absent on every registration after it. The agent
+// therefore has to tell "the server did not issue one" from "the server issued
+// an empty string", because it reacts to the two in opposite ways: keep the
+// credential it already holds, or overwrite it. Overwriting it with nothing
+// leaves nothing to authenticate with and no way back, since the enrolment
+// token it arrived on was single-use.
+//
+// Both directions again, and for the same reason: only one of them fails
+// loudly.
+func TestRegisterResponse_CredentialPresence(t *testing.T) {
+	// A response that issued no credential — an ordinary re-registration.
+	silent, err := proto.Marshal(&pb.RegisterResponse{AgentUuid: "u", Success: true})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got pb.RegisterResponse
+	if err := proto.Unmarshal(silent, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.AgentCredential != nil {
+		t.Errorf("agent_credential reads as present (%q) in a response that never carried it; "+
+			"an agent would overwrite its working credential", got.GetAgentCredential())
+	}
+
+	// And one that did issue one. Nothing about it may be lost in transit.
+	cred := "esk_a1_AAAAAAAAAAAAAAAAAAAAAA_" + strings.Repeat("b", 43)
+	issued, err := proto.Marshal(&pb.RegisterResponse{
+		AgentUuid:       "u",
+		Success:         true,
+		AgentCredential: &cred,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back pb.RegisterResponse
+	if err := proto.Unmarshal(issued, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.AgentCredential == nil {
+		t.Fatal("an issued credential came back absent")
+	}
+	if *back.AgentCredential != cred {
+		t.Errorf("agent_credential = %q, want %q", *back.AgentCredential, cred)
 	}
 }
 
