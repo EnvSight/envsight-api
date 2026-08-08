@@ -50,21 +50,19 @@ func TestOldAgentMessage_NewFieldsReadAsAbsent(t *testing.T) {
 	}
 
 	for name, present := range map[string]bool{
-		"cpu_steal_percent":    got.CpuStealPercent != nil,
-		"cpu_iowait_percent":   got.CpuIowaitPercent != nil,
-		"mem_available_mb":     got.MemAvailableMb != nil,
-		"swap_used_mb":         got.SwapUsedMb != nil,
-		"disk_fullest_percent": got.DiskFullestPercent != nil,
-		"disk_fullest_mount":   got.DiskFullestMount != nil,
-		"disk_inodes_percent":  got.DiskInodesPercent != nil,
-		"disk_util_percent":    got.DiskUtilPercent != nil,
-		"disk_await_ms":        got.DiskAwaitMs != nil,
-		"disk_read_bps":        got.DiskReadBps != nil,
-		"disk_write_bps":       got.DiskWriteBps != nil,
-		"net_rx_bps":           got.NetRxBps != nil,
-		"net_tx_bps":           got.NetTxBps != nil,
-		"process_count":        got.ProcessCount != nil,
-		"procs_blocked":        got.ProcsBlocked != nil,
+		"cpu_steal_percent":   got.CpuStealPercent != nil,
+		"cpu_iowait_percent":  got.CpuIowaitPercent != nil,
+		"mem_available_mb":    got.MemAvailableMb != nil,
+		"swap_used_mb":        got.SwapUsedMb != nil,
+		"disk_inodes_percent": got.DiskInodesPercent != nil,
+		"disk_util_percent":   got.DiskUtilPercent != nil,
+		"disk_await_ms":       got.DiskAwaitMs != nil,
+		"disk_read_bps":       got.DiskReadBps != nil,
+		"disk_write_bps":      got.DiskWriteBps != nil,
+		"net_rx_bps":          got.NetRxBps != nil,
+		"net_tx_bps":          got.NetTxBps != nil,
+		"process_count":       got.ProcessCount != nil,
+		"procs_blocked":       got.ProcsBlocked != nil,
 	} {
 		if present {
 			t.Errorf("%s reads as present in a message that never carried it", name)
@@ -140,29 +138,5 @@ func TestUnknownField_SurvivesAReadAndRewrite(t *testing.T) {
 	}
 	if len(again) <= len(wire) {
 		t.Error("the unknown field was dropped on rewrite rather than carried through")
-	}
-}
-
-// FilesystemInfo rides on NodeState and is not a metrics field. Pinned because
-// the temptation to persist it is exactly what the message comment argues
-// against, and a test is harder to skim past than a comment.
-func TestFilesystems_TravelOnNodeStateNotOnMetrics(t *testing.T) {
-	st := &pb.NodeState{
-		AgentUuid: "a",
-		Filesystems: []*pb.FilesystemInfo{
-			{Mountpoint: "/", TotalMb: 100, UsedMb: 40},
-			{Mountpoint: "/var", TotalMb: 50, UsedMb: 48},
-		},
-	}
-	wire, err := proto.Marshal(st)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var got pb.NodeState
-	if err := proto.Unmarshal(wire, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(got.Filesystems) != 2 || got.Filesystems[1].Mountpoint != "/var" {
-		t.Errorf("filesystems did not survive: %+v", got.Filesystems)
 	}
 }
