@@ -436,15 +436,27 @@ type Metrics struct {
 	// not the place to explain it either.
 	NetRxBps *float64 `protobuf:"fixed64,20,opt,name=net_rx_bps,json=netRxBps,proto3,oneof" json:"net_rx_bps,omitempty"`
 	NetTxBps *float64 `protobuf:"fixed64,21,opt,name=net_tx_bps,json=netTxBps,proto3,oneof" json:"net_tx_bps,omitempty"`
-	// Both are cheap and both catch a class of failure nothing else here shows:
-	// a leak that forks without reaping, and TIME_WAIT or ESTABLISHED piling up
-	// on a host whose listening ports look entirely normal.
-	ProcessCount   *uint32 `protobuf:"varint,22,opt,name=process_count,json=processCount,proto3,oneof" json:"process_count,omitempty"`
-	ThreadCount    *uint32 `protobuf:"varint,23,opt,name=thread_count,json=threadCount,proto3,oneof" json:"thread_count,omitempty"`
-	TcpEstablished *uint32 `protobuf:"varint,24,opt,name=tcp_established,json=tcpEstablished,proto3,oneof" json:"tcp_established,omitempty"`
-	TcpTimeWait    *uint32 `protobuf:"varint,25,opt,name=tcp_time_wait,json=tcpTimeWait,proto3,oneof" json:"tcp_time_wait,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// A count that changes shape when something is wrong: a leak that forks
+	// without reaping, or a service restarting in a loop. Free — it comes off
+	// /proc/loadavg with the numbers below.
+	ProcessCount *uint32 `protobuf:"varint,22,opt,name=process_count,json=processCount,proto3,oneof" json:"process_count,omitempty"`
+	// Processes in uninterruptible sleep: stuck on I/O that cannot be
+	// interrupted, usually a disk or an NFS mount. They cannot be killed —
+	// kill -9 does nothing, because the signal is delivered on the way back to
+	// userspace and they never get there.
+	//
+	// This is the field that disambiguates load average, which on Linux counts
+	// these processes as well as runnable ones. A load of 50 means either
+	//
+	//	cpu 95%, blocked 0   — saturated, and behaving normally
+	//	cpu  3%, blocked 48  — storage is wedged and nothing can be killed
+	//
+	// and nothing else in this message tells the two apart. Alongside
+	// cpu_iowait_percent and disk_await_ms it completes the picture: how much
+	// the CPU waits, how slow the device is, and how many processes are stuck.
+	ProcsBlocked  *uint32 `protobuf:"varint,26,opt,name=procs_blocked,json=procsBlocked,proto3,oneof" json:"procs_blocked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Metrics) Reset() {
@@ -631,23 +643,9 @@ func (x *Metrics) GetProcessCount() uint32 {
 	return 0
 }
 
-func (x *Metrics) GetThreadCount() uint32 {
-	if x != nil && x.ThreadCount != nil {
-		return *x.ThreadCount
-	}
-	return 0
-}
-
-func (x *Metrics) GetTcpEstablished() uint32 {
-	if x != nil && x.TcpEstablished != nil {
-		return *x.TcpEstablished
-	}
-	return 0
-}
-
-func (x *Metrics) GetTcpTimeWait() uint32 {
-	if x != nil && x.TcpTimeWait != nil {
-		return *x.TcpTimeWait
+func (x *Metrics) GetProcsBlocked() uint32 {
+	if x != nil && x.ProcsBlocked != nil {
+		return *x.ProcsBlocked
 	}
 	return 0
 }
@@ -1058,7 +1056,7 @@ const file_envsight_proto_rawDesc = "" +
 	"\rgpu_processes\x18\b \x03(\v2\x14.envsight.GpuProcessR\fgpuProcesses\x12/\n" +
 	"\x13diagnostic_snapshot\x18\t \x01(\tR\x12diagnosticSnapshot\x12:\n" +
 	"\vfilesystems\x18\n" +
-	" \x03(\v2\x18.envsight.FilesystemInfoR\vfilesystemsJ\x04\b\x06\x10\aR\ais_idle\"\xc1\n" +
+	" \x03(\v2\x18.envsight.FilesystemInfoR\vfilesystemsJ\x04\b\x06\x10\aR\ais_idle\"\x87\n" +
 	"\n" +
 	"\aMetrics\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
@@ -1090,10 +1088,8 @@ const file_envsight_proto_rawDesc = "" +
 	"net_rx_bps\x18\x14 \x01(\x01H\vR\bnetRxBps\x88\x01\x01\x12!\n" +
 	"\n" +
 	"net_tx_bps\x18\x15 \x01(\x01H\fR\bnetTxBps\x88\x01\x01\x12(\n" +
-	"\rprocess_count\x18\x16 \x01(\rH\rR\fprocessCount\x88\x01\x01\x12&\n" +
-	"\fthread_count\x18\x17 \x01(\rH\x0eR\vthreadCount\x88\x01\x01\x12,\n" +
-	"\x0ftcp_established\x18\x18 \x01(\rH\x0fR\x0etcpEstablished\x88\x01\x01\x12'\n" +
-	"\rtcp_time_wait\x18\x19 \x01(\rH\x10R\vtcpTimeWait\x88\x01\x01B\x14\n" +
+	"\rprocess_count\x18\x16 \x01(\rH\rR\fprocessCount\x88\x01\x01\x12(\n" +
+	"\rprocs_blocked\x18\x1a \x01(\rH\x0eR\fprocsBlocked\x88\x01\x01B\x14\n" +
 	"\x12_cpu_steal_percentB\x15\n" +
 	"\x13_cpu_iowait_percentB\x13\n" +
 	"\x11_mem_available_mbB\x0f\n" +
@@ -1107,10 +1103,8 @@ const file_envsight_proto_rawDesc = "" +
 	"\x0f_disk_write_bpsB\r\n" +
 	"\v_net_rx_bpsB\r\n" +
 	"\v_net_tx_bpsB\x10\n" +
-	"\x0e_process_countB\x0f\n" +
-	"\r_thread_countB\x12\n" +
-	"\x10_tcp_establishedB\x10\n" +
-	"\x0e_tcp_time_wait\"\xc4\x01\n" +
+	"\x0e_process_countB\x10\n" +
+	"\x0e_procs_blockedJ\x04\b\x17\x10\x18J\x04\b\x18\x10\x19J\x04\b\x19\x10\x1aR\fthread_countR\x0ftcp_establishedR\rtcp_time_wait\"\xc4\x01\n" +
 	"\x0eFilesystemInfo\x12\x1e\n" +
 	"\n" +
 	"mountpoint\x18\x01 \x01(\tR\n" +

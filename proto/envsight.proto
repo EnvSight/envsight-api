@@ -160,15 +160,47 @@ message Metrics {
   optional double net_rx_bps = 20;
   optional double net_tx_bps = 21;
 
-  // --- Process and connection counts ---------------------------------------
+  // --- Process counts ------------------------------------------------------
 
-  // Both are cheap and both catch a class of failure nothing else here shows:
-  // a leak that forks without reaping, and TIME_WAIT or ESTABLISHED piling up
-  // on a host whose listening ports look entirely normal.
+  // A count that changes shape when something is wrong: a leak that forks
+  // without reaping, or a service restarting in a loop. Free — it comes off
+  // /proc/loadavg with the numbers below.
   optional uint32 process_count = 22;
-  optional uint32 thread_count = 23;
-  optional uint32 tcp_established = 24;
-  optional uint32 tcp_time_wait = 25;
+
+  // Processes in uninterruptible sleep: stuck on I/O that cannot be
+  // interrupted, usually a disk or an NFS mount. They cannot be killed —
+  // kill -9 does nothing, because the signal is delivered on the way back to
+  // userspace and they never get there.
+  //
+  // This is the field that disambiguates load average, which on Linux counts
+  // these processes as well as runnable ones. A load of 50 means either
+  //
+  //     cpu 95%, blocked 0   — saturated, and behaving normally
+  //     cpu  3%, blocked 48  — storage is wedged and nothing can be killed
+  //
+  // and nothing else in this message tells the two apart. Alongside
+  // cpu_iowait_percent and disk_await_ms it completes the picture: how much
+  // the CPU waits, how slow the device is, and how many processes are stuck.
+  optional uint32 procs_blocked = 26;
+
+  // 23, 24, 25 held tcp_established, tcp_time_wait and thread_count in
+  // v1.3.0 and are not to be reused. That release is a public immutable tag
+  // recorded in Go's checksum database, so an implementation generated from
+  // it may exist even though nothing here consumed it.
+  //
+  // They were removed for the same reason: no threshold that means anything
+  // across hosts. Twelve thousand connections in TIME_WAIT, or four thousand
+  // threads, is healthy on one machine and broken on the next, so the chart
+  // is a line with no reference — unlike a CPU share or a disk percentage,
+  // which read identically everywhere. Diagnosing either needs to know which
+  // application, which port, which peer, and a scalar carries none of that.
+  //
+  // Dropping the connection counts also leaves the door open: with only
+  // listening sockets to report, the expensive part of enumerating every
+  // connection can be skipped later. Keeping a total would have required it
+  // forever.
+  reserved 23, 24, 25;
+  reserved "thread_count", "tcp_established", "tcp_time_wait";
 }
 
 // FilesystemInfo is one mounted filesystem, for the live detail view.
