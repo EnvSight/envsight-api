@@ -64,9 +64,7 @@ func TestOldAgentMessage_NewFieldsReadAsAbsent(t *testing.T) {
 		"net_rx_bps":           got.NetRxBps != nil,
 		"net_tx_bps":           got.NetTxBps != nil,
 		"process_count":        got.ProcessCount != nil,
-		"thread_count":         got.ThreadCount != nil,
-		"tcp_established":      got.TcpEstablished != nil,
-		"tcp_time_wait":        got.TcpTimeWait != nil,
+		"procs_blocked":        got.ProcsBlocked != nil,
 	} {
 		if present {
 			t.Errorf("%s reads as present in a message that never carried it", name)
@@ -81,7 +79,7 @@ func TestReportedZero_SurvivesAsZero(t *testing.T) {
 	sent := &pb.Metrics{
 		NetRxBps:        &zero,
 		DiskUtilPercent: &zero,
-		TcpTimeWait:     &zeroU,
+		ProcsBlocked:    &zeroU,
 	}
 	wire, err := proto.Marshal(sent)
 	if err != nil {
@@ -96,7 +94,7 @@ func TestReportedZero_SurvivesAsZero(t *testing.T) {
 	for name, p := range map[string]bool{
 		"net_rx_bps":        got.NetRxBps != nil,
 		"disk_util_percent": got.DiskUtilPercent != nil,
-		"tcp_time_wait":     got.TcpTimeWait != nil,
+		"procs_blocked":     got.ProcsBlocked != nil,
 	} {
 		if !p {
 			t.Errorf("%s was reported as 0 and came back absent", name)
