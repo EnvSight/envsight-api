@@ -81,9 +81,11 @@ message NodeState {
   repeated GpuProcess gpu_processes = 8;
   string diagnostic_snapshot = 9;  // Text snapshot produced by the diagnose command
 
-  // Every mounted filesystem, for the live view. Empty on burst beats, which
-  // carry only what changes between them — capacity does not.
-  repeated FilesystemInfo filesystems = 10;
+  // 10 held a repeated FilesystemInfo, removed with the fullest-mount fields
+  // in Metrics and for the same reason: producing it means enumerating every
+  // mount, and that enumeration is what can hang.
+  reserved 10;
+  reserved "filesystems";
 }
 
 // Metrics is one machine's reading at one instant.
@@ -139,20 +141,35 @@ message Metrics {
   optional uint64 swap_used_mb = 12;
 
   // --- Filesystem capacity -------------------------------------------------
-  // Slow-moving, so collected on baseline beats only.
-
-  // The fullest real filesystem, and which one it is. disk_used_mb covers the
-  // root only, and the partition that fills is usually not root — it is /var
-  // under log growth or a separately mounted data volume. Two scalars rather
-  // than a series per mount: charting one number per host stays one line,
-  // while "is anything about to fill up" is a yes-or-no question that needs no
-  // history. The full list travels in NodeState.filesystems for the live view.
-  optional double disk_fullest_percent = 13;
-  optional string disk_fullest_mount = 14;
 
   // Inodes on the root filesystem. The classic cause of "the disk is not full
-  // but writes fail", and invisible in every byte-based measure.
+  // but writes fail", and invisible in every byte-based measure. Free: it
+  // comes back from the same statfs that fills disk_used_mb.
   optional double disk_inodes_percent = 15;
+
+  // 13 and 14 held disk_fullest_percent and disk_fullest_mount, and are not
+  // to be reused.
+  //
+  // They existed to cover a real blind spot — disk_used_mb measures the root
+  // filesystem, and the partition that fills is often /var under log growth
+  // or a separately mounted data volume. Finding the fullest one means
+  // enumerating every mount, and that enumeration is the problem.
+  //
+  // statfs on an unreachable NFS or CIFS mount blocks in the kernel, and a
+  // context cancels the wait rather than the syscall, so the only defence is
+  // a list of filesystem types never to touch. The same list has to exclude
+  // tmpfs, which sits at 100% on a healthy host, and squashfs, one of which
+  // is mounted at exactly 100% for every installed snap, and overlay mounts,
+  // which report a disk already counted. Every entry is a platform-specific
+  // judgement, and each one can be wrong in one of two directions: park a
+  // goroutine forever on a dead file server, or report every fresh Ubuntu
+  // machine as full on its first day.
+  //
+  // A root-only reading needs none of it. The blind spot is real and belongs
+  // to hosts somebody deliberately partitioned, which is a smaller set than
+  // the set of hosts a wrong filter would misreport.
+  reserved 13, 14;
+  reserved "disk_fullest_percent", "disk_fullest_mount";
 
   // --- Disk I/O ------------------------------------------------------------
   // Rates over the interval, from /proc/diskstats deltas.
@@ -222,26 +239,6 @@ message Metrics {
   // forever.
   reserved 23, 24, 25;
   reserved "thread_count", "tcp_established", "tcp_time_wait";
-}
-
-// FilesystemInfo is one mounted filesystem, for the live detail view.
-//
-// Not persisted. It follows the pattern ports and GPU processes already use:
-// reported every beat, cached for the screen, and never written to a metrics
-// row. "Which disk is nearly full right now" is worth knowing; "how full /tmp
-// was three weeks ago" is not, and a series per mount would turn one row per
-// host per sample into one row per mount.
-//
-// Pseudo-filesystems are excluded before this is filled: tmpfs sits at 100% on
-// a healthy host, every installed snap is its own 100% squashfs, and overlay
-// mounts double-count the disk underneath them.
-message FilesystemInfo {
-  string mountpoint = 1;
-  string device = 2;
-  string fstype = 3;
-  uint64 total_mb = 4;
-  uint64 used_mb = 5;
-  double inodes_used_percent = 6;
 }
 
 message GpuInfo {
