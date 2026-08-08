@@ -22,10 +22,22 @@ const (
 )
 
 type RegisterRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentUuid     string                 `protobuf:"bytes,1,opt,name=agent_uuid,json=agentUuid,proto3" json:"agent_uuid,omitempty"` // Empty on first registration; cached UUID otherwise
-	HostInfo      *HostInfo              `protobuf:"bytes,2,opt,name=host_info,json=hostInfo,proto3" json:"host_info,omitempty"`    // Static host inventory collected at startup
-	Token         string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`                          // Agent API token (also sent as gRPC Bearer metadata)
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	AgentUuid string                 `protobuf:"bytes,1,opt,name=agent_uuid,json=agentUuid,proto3" json:"agent_uuid,omitempty"` // Empty on first registration; cached UUID otherwise
+	HostInfo  *HostInfo              `protobuf:"bytes,2,opt,name=host_info,json=hostInfo,proto3" json:"host_info,omitempty"`    // Static host inventory collected at startup
+	// The credential this agent is presenting, also sent as gRPC Bearer
+	// metadata. It is one of two things, and the server tells them apart by
+	// their prefix:
+	//
+	//	an enrolment token   handed out by "Add Server", single-use and
+	//	                     short-lived, naming the group the machine joins
+	//	a machine credential issued by the server in the response below, and
+	//	                     thereafter the only thing this agent presents
+	//
+	// A machine that has been enrolled sends the second. Only a machine that
+	// has never registered — or one whose record was deleted — has anything to
+	// do with the first.
+	Token         string `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -82,12 +94,27 @@ func (x *RegisterRequest) GetToken() string {
 }
 
 type RegisterResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentUuid     string                 `protobuf:"bytes,1,opt,name=agent_uuid,json=agentUuid,proto3" json:"agent_uuid,omitempty"` // Server-issued or confirmed UUID
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"` // Error description when success == false
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	AgentUuid string                 `protobuf:"bytes,1,opt,name=agent_uuid,json=agentUuid,proto3" json:"agent_uuid,omitempty"` // Server-issued or confirmed UUID
+	Success   bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	Message   string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"` // Error description when success == false
+	// The machine's own long-lived credential, returned exactly once: on the
+	// registration that enrolled it. Absent on every later registration,
+	// because the agent already holds it.
+	//
+	// This is what moves identity off the enrolment token. That token names a
+	// group, and a group is a fact that changes — a machine can be transferred
+	// between them — so a credential carrying one goes stale the moment it
+	// does. This credential names the machine and nothing else, which is the
+	// one fact about it that never changes.
+	//
+	// `optional`, because proto3 cannot otherwise distinguish "the server did
+	// not issue one" from "the server issued an empty string". An agent that
+	// treats the second as the first would overwrite a working credential with
+	// nothing and never reconnect.
+	AgentCredential *string `protobuf:"bytes,4,opt,name=agent_credential,json=agentCredential,proto3,oneof" json:"agent_credential,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RegisterResponse) Reset() {
@@ -137,6 +164,13 @@ func (x *RegisterResponse) GetSuccess() bool {
 func (x *RegisterResponse) GetMessage() string {
 	if x != nil {
 		return x.Message
+	}
+	return ""
+}
+
+func (x *RegisterResponse) GetAgentCredential() string {
+	if x != nil && x.AgentCredential != nil {
+		return *x.AgentCredential
 	}
 	return ""
 }
@@ -921,12 +955,14 @@ const file_envsight_proto_rawDesc = "" +
 	"\n" +
 	"agent_uuid\x18\x01 \x01(\tR\tagentUuid\x12/\n" +
 	"\thost_info\x18\x02 \x01(\v2\x12.envsight.HostInfoR\bhostInfo\x12\x14\n" +
-	"\x05token\x18\x03 \x01(\tR\x05token\"e\n" +
+	"\x05token\x18\x03 \x01(\tR\x05token\"\xaa\x01\n" +
 	"\x10RegisterResponse\x12\x1d\n" +
 	"\n" +
 	"agent_uuid\x18\x01 \x01(\tR\tagentUuid\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xcc\x02\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12.\n" +
+	"\x10agent_credential\x18\x04 \x01(\tH\x00R\x0fagentCredential\x88\x01\x01B\x13\n" +
+	"\x11_agent_credential\"\xcc\x02\n" +
 	"\bHostInfo\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x17\n" +
 	"\aos_info\x18\x02 \x01(\tR\x06osInfo\x12\x1f\n" +
@@ -1068,6 +1104,7 @@ func file_envsight_proto_init() {
 	if File_envsight_proto != nil {
 		return
 	}
+	file_envsight_proto_msgTypes[1].OneofWrappers = []any{}
 	file_envsight_proto_msgTypes[2].OneofWrappers = []any{}
 	file_envsight_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}

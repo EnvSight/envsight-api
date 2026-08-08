@@ -19,13 +19,42 @@ service AgentService {
 message RegisterRequest {
   string agent_uuid = 1;   // Empty on first registration; cached UUID otherwise
   HostInfo host_info = 2;  // Static host inventory collected at startup
-  string token = 3;        // Agent API token (also sent as gRPC Bearer metadata)
+
+  // The credential this agent is presenting, also sent as gRPC Bearer
+  // metadata. It is one of two things, and the server tells them apart by
+  // their prefix:
+  //
+  //   an enrolment token   handed out by "Add Server", single-use and
+  //                        short-lived, naming the group the machine joins
+  //   a machine credential issued by the server in the response below, and
+  //                        thereafter the only thing this agent presents
+  //
+  // A machine that has been enrolled sends the second. Only a machine that
+  // has never registered — or one whose record was deleted — has anything to
+  // do with the first.
+  string token = 3;
 }
 
 message RegisterResponse {
   string agent_uuid = 1;   // Server-issued or confirmed UUID
   bool success = 2;
   string message = 3;      // Error description when success == false
+
+  // The machine's own long-lived credential, returned exactly once: on the
+  // registration that enrolled it. Absent on every later registration,
+  // because the agent already holds it.
+  //
+  // This is what moves identity off the enrolment token. That token names a
+  // group, and a group is a fact that changes — a machine can be transferred
+  // between them — so a credential carrying one goes stale the moment it
+  // does. This credential names the machine and nothing else, which is the
+  // one fact about it that never changes.
+  //
+  // `optional`, because proto3 cannot otherwise distinguish "the server did
+  // not issue one" from "the server issued an empty string". An agent that
+  // treats the second as the first would overwrite a working credential with
+  // nothing and never reconnect.
+  optional string agent_credential = 4;
 }
 
 // HostInfo carries the static, rarely-changing facts about a machine.
