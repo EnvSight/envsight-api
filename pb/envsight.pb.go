@@ -254,15 +254,36 @@ func (x *HostInfo) GetSwapTotalMb() uint64 {
 
 // NodeState is the dynamic per-heartbeat payload streamed by the agent.
 type NodeState struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	AgentUuid          string                 `protobuf:"bytes,1,opt,name=agent_uuid,json=agentUuid,proto3" json:"agent_uuid,omitempty"`
-	Metrics            *Metrics               `protobuf:"bytes,2,opt,name=metrics,proto3" json:"metrics,omitempty"`
-	Ports              []*PortInfo            `protobuf:"bytes,3,rep,name=ports,proto3" json:"ports,omitempty"`
-	Gpus               []*GpuInfo             `protobuf:"bytes,4,rep,name=gpus,proto3" json:"gpus,omitempty"` // GPU usage may change dynamically
-	HasPhysicalTty     bool                   `protobuf:"varint,5,opt,name=has_physical_tty,json=hasPhysicalTty,proto3" json:"has_physical_tty,omitempty"`
-	RequireDbSave      bool                   `protobuf:"varint,7,opt,name=require_db_save,json=requireDbSave,proto3" json:"require_db_save,omitempty"` // When true, server persists a SysMetric row
-	GpuProcesses       []*GpuProcess          `protobuf:"bytes,8,rep,name=gpu_processes,json=gpuProcesses,proto3" json:"gpu_processes,omitempty"`
-	DiagnosticSnapshot string                 `protobuf:"bytes,9,opt,name=diagnostic_snapshot,json=diagnosticSnapshot,proto3" json:"diagnostic_snapshot,omitempty"` // Text snapshot produced by the diagnose command
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AgentUuid      string                 `protobuf:"bytes,1,opt,name=agent_uuid,json=agentUuid,proto3" json:"agent_uuid,omitempty"`
+	Metrics        *Metrics               `protobuf:"bytes,2,opt,name=metrics,proto3" json:"metrics,omitempty"`
+	Ports          []*PortInfo            `protobuf:"bytes,3,rep,name=ports,proto3" json:"ports,omitempty"`
+	Gpus           []*GpuInfo             `protobuf:"bytes,4,rep,name=gpus,proto3" json:"gpus,omitempty"` // GPU usage may change dynamically
+	HasPhysicalTty bool                   `protobuf:"varint,5,opt,name=has_physical_tty,json=hasPhysicalTty,proto3" json:"has_physical_tty,omitempty"`
+	// True on a baseline beat, false on a burst one, and it means two things
+	// that are the same thing: persist a metrics row, and trust every field
+	// here.
+	//
+	// A burst beat carries only what changes between beats — the metrics and
+	// GPU utilisation — and omits ports, filesystems and GPU processes, which
+	// do not change every fifteen seconds and cost far more to collect and to
+	// send than everything else combined. A beat that reports them is around
+	// 3.2KB; one that does not is 205 bytes.
+	//
+	// So the server must merge rather than replace: on a burst beat, the fields
+	// it does not carry keep their previous values. It cannot work this out
+	// from the message, because proto3 cannot tell an empty repeated field from
+	// an absent one — a host with no listening ports and a beat that did not
+	// look are identical on the wire. This flag is the only thing that
+	// distinguishes them.
+	//
+	// The consequence, which is deliberate: a machine that stops listening on
+	// every port keeps showing its old ports until the next baseline beat, at
+	// most two minutes later. Idle detection is unaffected — it only ever runs
+	// on beats where this is true.
+	RequireDbSave      bool          `protobuf:"varint,7,opt,name=require_db_save,json=requireDbSave,proto3" json:"require_db_save,omitempty"`
+	GpuProcesses       []*GpuProcess `protobuf:"bytes,8,rep,name=gpu_processes,json=gpuProcesses,proto3" json:"gpu_processes,omitempty"`
+	DiagnosticSnapshot string        `protobuf:"bytes,9,opt,name=diagnostic_snapshot,json=diagnosticSnapshot,proto3" json:"diagnostic_snapshot,omitempty"` // Text snapshot produced by the diagnose command
 	// Every mounted filesystem, for the live view. Empty on burst beats, which
 	// carry only what changes between them — capacity does not.
 	Filesystems   []*FilesystemInfo `protobuf:"bytes,10,rep,name=filesystems,proto3" json:"filesystems,omitempty"`

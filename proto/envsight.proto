@@ -56,7 +56,28 @@ message NodeState {
   // agent. Agents only report raw signals (cpu/ports/gpu/tty).
   reserved 6;
   reserved "is_idle";
-  bool require_db_save = 7;        // When true, server persists a SysMetric row
+  // True on a baseline beat, false on a burst one, and it means two things
+  // that are the same thing: persist a metrics row, and trust every field
+  // here.
+  //
+  // A burst beat carries only what changes between beats — the metrics and
+  // GPU utilisation — and omits ports, filesystems and GPU processes, which
+  // do not change every fifteen seconds and cost far more to collect and to
+  // send than everything else combined. A beat that reports them is around
+  // 3.2KB; one that does not is 205 bytes.
+  //
+  // So the server must merge rather than replace: on a burst beat, the fields
+  // it does not carry keep their previous values. It cannot work this out
+  // from the message, because proto3 cannot tell an empty repeated field from
+  // an absent one — a host with no listening ports and a beat that did not
+  // look are identical on the wire. This flag is the only thing that
+  // distinguishes them.
+  //
+  // The consequence, which is deliberate: a machine that stops listening on
+  // every port keeps showing its old ports until the next baseline beat, at
+  // most two minutes later. Idle detection is unaffected — it only ever runs
+  // on beats where this is true.
+  bool require_db_save = 7;
   repeated GpuProcess gpu_processes = 8;
   string diagnostic_snapshot = 9;  // Text snapshot produced by the diagnose command
 
