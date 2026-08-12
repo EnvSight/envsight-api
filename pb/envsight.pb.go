@@ -430,9 +430,16 @@ type Metrics struct {
 	MemTotalMb    uint64                 `protobuf:"varint,3,opt,name=mem_total_mb,json=memTotalMb,proto3" json:"mem_total_mb,omitempty"` // Kept for backward compat and quick percentage calc
 	DiskUsedMb    uint64                 `protobuf:"varint,4,opt,name=disk_used_mb,json=diskUsedMb,proto3" json:"disk_used_mb,omitempty"`
 	UptimeSeconds uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
-	Load_1        float64                `protobuf:"fixed64,6,opt,name=load_1,json=load1,proto3" json:"load_1,omitempty"`
-	Load_5        float64                `protobuf:"fixed64,7,opt,name=load_5,json=load5,proto3" json:"load_5,omitempty"`
-	Load_15       float64                `protobuf:"fixed64,8,opt,name=load_15,json=load15,proto3" json:"load_15,omitempty"`
+	// Load average is a snapshot the kernel always has on Linux and macOS, so
+	// it reads reliably — but it is genuinely absent on platforms the agent may
+	// one day support (Windows has no /proc/loadavg equivalent). Without
+	// presence, a failed read and a real 0.00 are the same bytes, and the
+	// server's idle detector treats a low reading as idle. optional keeps
+	// "measured zero" — common on a quiet box — distinct from "not measured",
+	// the same property the fields below already have for the same reason.
+	Load_1  *float64 `protobuf:"fixed64,6,opt,name=load_1,json=load1,proto3,oneof" json:"load_1,omitempty"`
+	Load_5  *float64 `protobuf:"fixed64,7,opt,name=load_5,json=load5,proto3,oneof" json:"load_5,omitempty"`
+	Load_15 *float64 `protobuf:"fixed64,8,opt,name=load_15,json=load15,proto3,oneof" json:"load_15,omitempty"`
 	// Time the hypervisor gave to somebody else. On a cloud host this is the
 	// only evidence that slowness is the neighbour's fault and not the
 	// application's — the guest sees low utilisation and high latency, and
@@ -563,22 +570,22 @@ func (x *Metrics) GetUptimeSeconds() uint64 {
 }
 
 func (x *Metrics) GetLoad_1() float64 {
-	if x != nil {
-		return x.Load_1
+	if x != nil && x.Load_1 != nil {
+		return *x.Load_1
 	}
 	return 0
 }
 
 func (x *Metrics) GetLoad_5() float64 {
-	if x != nil {
-		return x.Load_5
+	if x != nil && x.Load_5 != nil {
+		return *x.Load_5
 	}
 	return 0
 }
 
 func (x *Metrics) GetLoad_15() float64 {
-	if x != nil {
-		return x.Load_15
+	if x != nil && x.Load_15 != nil {
+		return *x.Load_15
 	}
 	return 0
 }
@@ -986,7 +993,7 @@ const file_envsight_proto_rawDesc = "" +
 	"\x0frequire_db_save\x18\a \x01(\bR\rrequireDbSave\x129\n" +
 	"\rgpu_processes\x18\b \x03(\v2\x14.envsight.GpuProcessR\fgpuProcesses\x12/\n" +
 	"\x13diagnostic_snapshot\x18\t \x01(\tR\x12diagnosticSnapshotJ\x04\b\x06\x10\aJ\x04\b\n" +
-	"\x10\vR\ais_idleR\vfilesystems\"\xa3\t\n" +
+	"\x10\vR\ais_idleR\vfilesystems\"\xd4\t\n" +
 	"\aMetrics\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12\x1e\n" +
@@ -995,28 +1002,32 @@ const file_envsight_proto_rawDesc = "" +
 	"memTotalMb\x12 \n" +
 	"\fdisk_used_mb\x18\x04 \x01(\x04R\n" +
 	"diskUsedMb\x12%\n" +
-	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12\x15\n" +
-	"\x06load_1\x18\x06 \x01(\x01R\x05load1\x12\x15\n" +
-	"\x06load_5\x18\a \x01(\x01R\x05load5\x12\x17\n" +
-	"\aload_15\x18\b \x01(\x01R\x06load15\x12/\n" +
-	"\x11cpu_steal_percent\x18\t \x01(\x01H\x00R\x0fcpuStealPercent\x88\x01\x01\x121\n" +
+	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12\x1a\n" +
+	"\x06load_1\x18\x06 \x01(\x01H\x00R\x05load1\x88\x01\x01\x12\x1a\n" +
+	"\x06load_5\x18\a \x01(\x01H\x01R\x05load5\x88\x01\x01\x12\x1c\n" +
+	"\aload_15\x18\b \x01(\x01H\x02R\x06load15\x88\x01\x01\x12/\n" +
+	"\x11cpu_steal_percent\x18\t \x01(\x01H\x03R\x0fcpuStealPercent\x88\x01\x01\x121\n" +
 	"\x12cpu_iowait_percent\x18\n" +
-	" \x01(\x01H\x01R\x10cpuIowaitPercent\x88\x01\x01\x12-\n" +
-	"\x10mem_available_mb\x18\v \x01(\x04H\x02R\x0ememAvailableMb\x88\x01\x01\x12%\n" +
-	"\fswap_used_mb\x18\f \x01(\x04H\x03R\n" +
+	" \x01(\x01H\x04R\x10cpuIowaitPercent\x88\x01\x01\x12-\n" +
+	"\x10mem_available_mb\x18\v \x01(\x04H\x05R\x0ememAvailableMb\x88\x01\x01\x12%\n" +
+	"\fswap_used_mb\x18\f \x01(\x04H\x06R\n" +
 	"swapUsedMb\x88\x01\x01\x123\n" +
-	"\x13disk_inodes_percent\x18\x0f \x01(\x01H\x04R\x11diskInodesPercent\x88\x01\x01\x12/\n" +
-	"\x11disk_util_percent\x18\x10 \x01(\x01H\x05R\x0fdiskUtilPercent\x88\x01\x01\x12'\n" +
-	"\rdisk_await_ms\x18\x11 \x01(\x01H\x06R\vdiskAwaitMs\x88\x01\x01\x12'\n" +
-	"\rdisk_read_bps\x18\x12 \x01(\x01H\aR\vdiskReadBps\x88\x01\x01\x12)\n" +
-	"\x0edisk_write_bps\x18\x13 \x01(\x01H\bR\fdiskWriteBps\x88\x01\x01\x12!\n" +
+	"\x13disk_inodes_percent\x18\x0f \x01(\x01H\aR\x11diskInodesPercent\x88\x01\x01\x12/\n" +
+	"\x11disk_util_percent\x18\x10 \x01(\x01H\bR\x0fdiskUtilPercent\x88\x01\x01\x12'\n" +
+	"\rdisk_await_ms\x18\x11 \x01(\x01H\tR\vdiskAwaitMs\x88\x01\x01\x12'\n" +
+	"\rdisk_read_bps\x18\x12 \x01(\x01H\n" +
+	"R\vdiskReadBps\x88\x01\x01\x12)\n" +
+	"\x0edisk_write_bps\x18\x13 \x01(\x01H\vR\fdiskWriteBps\x88\x01\x01\x12!\n" +
 	"\n" +
-	"net_rx_bps\x18\x14 \x01(\x01H\tR\bnetRxBps\x88\x01\x01\x12!\n" +
+	"net_rx_bps\x18\x14 \x01(\x01H\fR\bnetRxBps\x88\x01\x01\x12!\n" +
 	"\n" +
-	"net_tx_bps\x18\x15 \x01(\x01H\n" +
-	"R\bnetTxBps\x88\x01\x01\x12(\n" +
-	"\rprocess_count\x18\x16 \x01(\rH\vR\fprocessCount\x88\x01\x01\x12(\n" +
-	"\rprocs_blocked\x18\x1a \x01(\rH\fR\fprocsBlocked\x88\x01\x01B\x14\n" +
+	"net_tx_bps\x18\x15 \x01(\x01H\rR\bnetTxBps\x88\x01\x01\x12(\n" +
+	"\rprocess_count\x18\x16 \x01(\rH\x0eR\fprocessCount\x88\x01\x01\x12(\n" +
+	"\rprocs_blocked\x18\x1a \x01(\rH\x0fR\fprocsBlocked\x88\x01\x01B\t\n" +
+	"\a_load_1B\t\n" +
+	"\a_load_5B\n" +
+	"\n" +
+	"\b_load_15B\x14\n" +
 	"\x12_cpu_steal_percentB\x15\n" +
 	"\x13_cpu_iowait_percentB\x13\n" +
 	"\x11_mem_available_mbB\x0f\n" +
