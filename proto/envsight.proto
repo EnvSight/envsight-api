@@ -138,9 +138,16 @@ message Metrics {
   uint64 mem_total_mb = 3;         // Kept for backward compat and quick percentage calc
   uint64 disk_used_mb = 4;
   uint64 uptime_seconds = 5;
-  double load_1 = 6;
-  double load_5 = 7;
-  double load_15 = 8;
+  // Load average is a snapshot the kernel always has on Linux and macOS, so
+  // it reads reliably — but it is genuinely absent on platforms the agent may
+  // one day support (Windows has no /proc/loadavg equivalent). Without
+  // presence, a failed read and a real 0.00 are the same bytes, and the
+  // server's idle detector treats a low reading as idle. optional keeps
+  // "measured zero" — common on a quiet box — distinct from "not measured",
+  // the same property the fields below already have for the same reason.
+  optional double load_1 = 6;
+  optional double load_5 = 7;
+  optional double load_15 = 8;
 
   // --- CPU breakdown -------------------------------------------------------
   // Both are shares of the same interval cpu_percent covers, derived from

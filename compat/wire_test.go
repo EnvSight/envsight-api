@@ -30,11 +30,12 @@ import (
 
 // An agent built against v1.2.0 sends fields 1-8 and nothing else.
 func TestOldAgentMessage_NewFieldsReadAsAbsent(t *testing.T) {
+	load := 1.5
 	old := &pb.Metrics{
 		CpuPercent: 42.5,
 		MemUsedMb:  1000,
 		MemTotalMb: 8192,
-		Load_1:     1.5,
+		Load_1:     &load, // a load the old agent reported still arrives present
 	}
 	wire, err := proto.Marshal(old)
 	if err != nil {
@@ -76,6 +77,7 @@ func TestReportedZero_SurvivesAsZero(t *testing.T) {
 	zero := float64(0)
 	zeroU := uint32(0)
 	sent := &pb.Metrics{
+		Load_1:          &zero, // a quiet box's 0.00 load must not collapse to absent
 		NetRxBps:        &zero,
 		DiskUtilPercent: &zero,
 		ProcsBlocked:    &zeroU,
@@ -91,6 +93,7 @@ func TestReportedZero_SurvivesAsZero(t *testing.T) {
 	}
 
 	for name, p := range map[string]bool{
+		"load_1":            got.Load_1 != nil,
 		"net_rx_bps":        got.NetRxBps != nil,
 		"disk_util_percent": got.DiskUtilPercent != nil,
 		"procs_blocked":     got.ProcsBlocked != nil,
@@ -98,6 +101,9 @@ func TestReportedZero_SurvivesAsZero(t *testing.T) {
 		if !p {
 			t.Errorf("%s was reported as 0 and came back absent", name)
 		}
+	}
+	if got.Load_1 != nil && *got.Load_1 != 0 {
+		t.Errorf("load_1 = %v, want 0", *got.Load_1)
 	}
 	if got.NetRxBps != nil && *got.NetRxBps != 0 {
 		t.Errorf("net_rx_bps = %v, want 0", *got.NetRxBps)
