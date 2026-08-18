@@ -1,0 +1,39 @@
+name: Gitleaks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: gitleaks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      # Gitleaks scans commits, not the working tree, and actions/checkout
+      # defaults to a shallow clone — which would silently turn this into a
+      # one-commit scan of the merge result.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Installed from the release tarball instead of gitleaks-action: that
+      # action requires a paid license for organisational use, and this repo
+      # lives under an organisation. The version is pinned so an upstream
+      # rule or CLI change cannot turn CI red overnight; bump deliberately.
+      - name: Install pinned gitleaks
+        run: |
+          version="8.30.1"
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      # Known false positives (reviewed test vectors) are listed in
+      # .gitleaksignore by full fingerprint; anything new fails the build.
+      - name: Scan
+        run: gitleaks git --redact --verbose .
